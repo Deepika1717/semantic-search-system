@@ -1,231 +1,372 @@
+Semantic Search System
+
+```markdown
 # Semantic Search System with Fuzzy Clustering and Semantic Cache
 
-## Project Overview
+## Overview
 
-This project implements a **Semantic Search System** using the **20 Newsgroups dataset**. The goal is to allow users to search documents based on **meaning (semantic similarity)** instead of exact keyword matches.
+This project implements a lightweight **semantic search system** built on top of the **20 Newsgroups dataset**. The system allows users to query a large corpus of news posts using natural language and retrieve semantically similar documents.
 
-The system converts documents into **vector embeddings**, groups similar documents using **Fuzzy C-Means clustering**, and improves performance using a **Semantic Cache**.
+The system includes three major components:
 
-A **FastAPI service** is built on top of the system so users can send queries through an API and retrieve relevant documents.
+1. **Vector Embeddings & Vector Index**
+2. **Fuzzy Clustering of Documents**
+3. **Semantic Cache for Query Reuse**
+4. **FastAPI Service for Live Query Access**
 
----
-
-# Features
-
-• Semantic document search using embeddings
-• Fuzzy clustering to group similar documents
-• Custom semantic cache to reuse previous results
-• FastAPI backend for querying the system
-• Dataset preprocessing and cleaning
-• Modular project structure
+The design focuses on building the cache and clustering logic **from first principles**, without relying on external caching middleware like Redis or Memcached.
 
 ---
 
 # Dataset
 
-The project uses the **20 Newsgroups dataset**, which contains about **20,000 news articles** across **20 categories** such as:
+The project uses the **20 Newsgroups dataset**, which contains approximately **20,000 news articles across 20 different categories**.
 
-* politics
-* sports
-* religion
-* technology
-* space
-* medicine
+Dataset source:
+https://archive.ics.uci.edu/dataset/113/twenty+newsgroups
 
-This dataset is commonly used for **text classification and NLP experiments**.
+The dataset contains real-world challenges such as:
+
+- noisy headers
+- email signatures
+- quoted replies
+- inconsistent formatting
+
+These issues are addressed during preprocessing.
+
+---
+
+# System Architecture
+
+The system pipeline follows the architecture below:
+
+```
+
+User Query
+│
+▼
+FastAPI Endpoint
+│
+▼
+Query Embedding
+│
+▼
+Semantic Cache Lookup
+│
+├── Cache Hit → Return Stored Result
+│
+└── Cache Miss
+│
+▼
+Semantic Search
+│
+▼
+Cluster Identification
+│
+▼
+Store Result in Cache
+│
+▼
+Return Result
+
+````
 
 ---
 
 # Project Structure
 
 ```
-semantic-search-project
+semantic-search-system
 
 api/
-    main.py                # FastAPI server
+main.py              → FastAPI service
 
 cache/
-    semantic_cache.py      # Semantic cache logic
+semantic_cache.py    → Custom semantic cache implementation
 
 clustering/
-    fuzzy_clustering.py    # Fuzzy C-Means clustering implementation
+fuzzy_clustering.py  → Fuzzy C-Means clustering
 
 data/
-    loader.py              # Dataset loading and preprocessing
+loader.py            → Dataset loading and preprocessing
+20_newsgroups/       → Dataset folder
 
 embeddings/
-    embedding_model.py     # Sentence transformer model
+embedding_model.py   → Sentence Transformer embedding generation
 
 search/
-    semantic_search.py     # Search logic using cosine similarity
+semantic_search.py   → Vector similarity search
 
 index/
-    embeddings.pkl         # Saved document embeddings
-    documents.pkl          # Saved documents
+embeddings.pkl       → Stored document embeddings
+documents.pkl        → Stored documents
 
 requirements.txt
 README.md
-```
-
----
-
-# How the System Works
-
-The system follows this pipeline:
-
-```
-User Query
-   ↓
-FastAPI Endpoint
-   ↓
-Query converted to embedding
-   ↓
-Semantic Cache Check
-   ↓
-If cache hit → return cached results
-If cache miss → perform semantic search
-   ↓
-Find similar documents
-   ↓
-Return results
-   ↓
-Store query in cache
-```
+````
 
 ---
 
 # Data Preprocessing
 
-Before creating embeddings, the dataset is cleaned.
+The dataset contains noisy metadata that can negatively affect semantic representation.
 
-The preprocessing steps include:
+The preprocessing pipeline performs:
 
-• removing email headers
-• removing signatures
-• removing quoted replies
-• converting text to lowercase
-• removing URLs and punctuation
-• removing very short documents
+### Header Removal
 
-This ensures the embeddings capture **meaningful text content**.
+Email headers are removed to retain only the meaningful content.
+
+### Quote Removal
+
+Quoted replies from previous messages are removed.
+
+### Signature Removal
+
+Email signatures are removed to avoid noise.
+
+### Text Normalization
+
+* Lowercasing
+* URL removal
+* punctuation removal
+* number removal
+* whitespace normalization
+
+Documents shorter than **20 characters** are discarded to avoid meaningless embeddings.
 
 ---
 
 # Embedding Model
 
-The system uses the **SentenceTransformer model**
+The project uses:
 
-```
-all-MiniLM-L6-v2
-```
+**SentenceTransformer – all-MiniLM-L6-v2**
 
-Why this model was chosen:
+Reasons for this choice:
 
-• lightweight and fast
-• good semantic understanding
-• widely used for semantic search tasks
+* lightweight and efficient
+* strong semantic representation
+* widely used for semantic search tasks
+* good trade-off between accuracy and performance
 
-Each document is converted into a **384-dimensional vector**.
+Each document is converted into a **384-dimensional vector embedding**.
 
-These vectors represent the **semantic meaning of the document**.
+These embeddings capture **semantic similarity between texts rather than keyword matching**.
 
 ---
 
-# Semantic Search Implementation
+# Vector Storage
 
-Semantic search is implemented using **cosine similarity** between embeddings.
+Instead of recomputing embeddings on every startup, embeddings are stored using **pickle serialization**.
 
-Steps:
-
-1. Convert user query to embedding
-2. Compare query embedding with document embeddings
-3. Calculate cosine similarity scores
-4. Return the top most similar documents
-
-This allows the system to find documents with **similar meaning even if the exact words differ**.
-
-Example:
-
-Query:
+Saved files:
 
 ```
-space missions
+index/embeddings.pkl
+index/documents.pkl
 ```
 
-Possible results:
+Benefits:
 
-```
-NASA launches new satellite
-Mars exploration program
-International space station updates
-```
+* faster API startup
+* avoids expensive recomputation
+* reduces runtime cost
 
 ---
 
 # Fuzzy Clustering
 
-Instead of assigning each document to a single cluster, the system uses **Fuzzy C-Means clustering**.
+Unlike traditional clustering, **documents may belong to multiple clusters simultaneously**.
 
-This means a document can belong to **multiple clusters with different probabilities**.
+This system uses **Fuzzy C-Means clustering**, which assigns each document a **membership probability across clusters** rather than forcing a hard assignment.
 
 Example:
 
 ```
 Document A
-Cluster 1 → 0.60
+Cluster 1 → 0.65
 Cluster 2 → 0.30
-Cluster 3 → 0.10
+Cluster 3 → 0.05
 ```
 
-This is useful because real-world topics often overlap.
+This reflects real-world semantics where topics often overlap.
 
-Example overlaps:
+Example overlap:
 
-• politics + firearms
-• technology + space
-• science + medicine
+```
+Politics ↔ Firearms ↔ Law
+Technology ↔ Space Science
+Sports ↔ Health
+```
 
-The clustering helps analyze **topic similarity within the dataset**.
+### Cluster Selection
+
+The system currently uses **5 clusters** as a balanced choice between:
+
+* semantic separation
+* computational efficiency
+* interpretability
+
+Cluster centers are later used to identify the **dominant cluster of a user query**.
+
+---
+
+# Semantic Search
+
+Search is performed using **cosine similarity between embeddings**.
+
+Steps:
+
+1. Convert user query into embedding
+2. Compute similarity with all document embeddings
+3. Select top-k most similar documents
+4. Return the results
+
+Cosine similarity works well for high-dimensional embedding spaces.
 
 ---
 
 # Semantic Cache
 
-Traditional caching works only for **exact query matches**.
+Traditional caches only match **exact queries**, which fails when users phrase the same question differently.
 
 Example:
 
 ```
-query 1: space missions
-query 2: space exploration
+"What are space missions?"
+"Tell me about space exploration."
 ```
 
-These are similar queries but traditional cache would treat them as different.
+These are semantically similar but textually different.
 
-The **Semantic Cache** solves this problem by storing:
+The implemented **semantic cache** solves this by storing:
 
 ```
 query
 query_embedding
 search_result
-cluster
+dominant_cluster
 ```
 
 When a new query arrives:
 
-1. The query embedding is compared with cached query embeddings
-2. If similarity is above a threshold
-3. Cached results are returned
+1. The query embedding is compared with stored query embeddings
+2. If similarity exceeds a defined threshold
+3. The stored result is reused
 
-This reduces repeated computations and improves performance.
+Similarity threshold used:
+
+```
+0.85
+```
+
+This value balances:
+
+* avoiding false matches
+* capturing semantically similar queries
 
 ---
 
-# API Implementation
+# Cache Data Structure
 
-The project exposes an API using **FastAPI**.
+Each cache entry contains:
 
-To start the server:
+```
+{
+query
+embedding
+result
+cluster
+}
+```
+
+Cache statistics are tracked:
+
+```
+total_entries
+hit_count
+miss_count
+hit_rate
+```
+
+This helps monitor cache performance.
+
+---
+
+# FastAPI Service
+
+The system exposes a REST API using **FastAPI**.
+
+FastAPI was chosen because it provides:
+
+* high performance
+* automatic API documentation
+* easy integration with Python ML pipelines
+
+---
+
+# API Endpoints
+
+## POST /query
+
+Accepts a natural language query.
+
+Example request:
+
+```
+{
+"query": "space exploration missions"
+}
+```
+
+Example response:
+
+```
+{
+"query": "space exploration missions",
+"cache_hit": false,
+"matched_query": null,
+"similarity_score": null,
+"result": ["document1","document2","document3"],
+"dominant_cluster": 2
+}
+```
+
+---
+
+## GET /cache/stats
+
+Returns cache statistics.
+
+Example:
+
+```
+{
+"total_entries": 12,
+"hit_count": 5,
+"miss_count": 7,
+"hit_rate": 0.41
+}
+```
+
+---
+
+## DELETE /cache
+
+Clears the cache and resets statistics.
+
+---
+
+# Running the System
+
+Install dependencies:
+
+```
+pip install -r requirements.txt
+```
+
+Start the API server:
 
 ```
 uvicorn api.main:app --reload
@@ -239,123 +380,64 @@ http://127.0.0.1:8000/docs
 
 ---
 
-# API Endpoints
+# Example Workflow
 
-## Query Endpoint
-
-```
-POST /query
-```
-
-Example request:
-
-```
-{
- "query": "space exploration"
-}
-```
-
-Example response:
-
-```
-{
- "cache_hit": false,
- "result": [
-   "document1",
-   "document2",
-   "document3"
- ]
-}
-```
+1. User sends query
+2. System checks semantic cache
+3. If similar query exists → return cached result
+4. Otherwise perform semantic search
+5. Store result in cache
+6. Return response
 
 ---
 
-## Cache Statistics
+# Key Design Decisions
 
-```
-GET /cache/stats
-```
+### Sentence Transformers
 
-Returns:
+Chosen for strong semantic representation and lightweight inference.
 
-```
-{
- "total_entries": 10,
- "hits": 3,
- "misses": 7
-}
-```
+### Fuzzy Clustering
 
----
+Captures overlapping semantic structure rather than rigid labels.
 
-## Clear Cache
+### Semantic Cache
 
-```
-DELETE /cache
-```
+Reduces redundant computation for similar queries.
 
-This removes all cached queries.
+### Pickle Storage
 
----
+Avoids repeated embedding computation.
 
-# How to Run the Project
+### FastAPI
 
-Install dependencies
-
-```
-pip install -r requirements.txt
-```
-
-Run the API
-
-```
-uvicorn api.main:app --reload
-```
-
-Open browser
-
-```
-http://127.0.0.1:8000/docs
-```
-
-You can test queries directly from the interactive API page.
-
----
-
-# Technologies Used
-
-Python
-FastAPI
-Sentence Transformers
-Scikit-Learn
-NumPy
-Pickle
+Provides production-ready API with minimal overhead.
 
 ---
 
 # Future Improvements
 
-Possible extensions:
+Potential extensions include:
 
-• integrate FAISS for faster vector search
-• add query result summarization using LLMs
-• improve clustering visualization
-• deploy the API using Docker
-• use Redis for distributed caching
+* ANN vector search using FAISS
+* cluster-aware search optimization
+* LLM summarization of search results
+* adaptive cache thresholds
+* distributed vector databases
 
 ---
 
 # Conclusion
 
-This project demonstrates a **complete semantic search pipeline** including:
+This project demonstrates a complete semantic search pipeline combining:
 
-• document preprocessing
-• embedding generation
-• semantic similarity search
-• fuzzy clustering
-• semantic caching
-• API deployment
+* modern NLP embeddings
+* fuzzy clustering
+* intelligent semantic caching
+* production-ready API deployment
 
-The system shows how **modern NLP techniques can improve search systems beyond traditional keyword matching**.
+The system highlights how semantic understanding and caching strategies can significantly improve search efficiency and scalability.
+
+```
 
 ---
